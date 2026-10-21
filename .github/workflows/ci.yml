@@ -1,0 +1,60 @@
+name: NexDesk Enterprise CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: testpassword123
+          POSTGRES_DB: nexdesk_test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install Node Dependencies
+        run: npm ci
+
+      - name: Set CI Environment Variables
+        run: |
+          echo "DATABASE_URL=postgresql://postgres:testpassword123@localhost:5432/nexdesk_test_db?schema=public" >> $GITHUB_ENV
+          echo "AUTH_SECRET=ci-workflow-mock-secret-key-32chars-minimum-abcdef" >> $GITHUB_ENV
+          echo "NODE_ENV=test" >> $GITHUB_ENV
+
+      - name: Push Prisma Schema to Test DB
+        run: npm run prisma:push
+
+      - name: Seed Test Database
+        run: npm run prisma:seed
+
+      - name: TypeScript Static Typecheck
+        run: npm run typecheck
+
+      - name: Run Vitest Unit & Integration Test Suite
+        run: npm test
+
+      - name: Build Next.js Production Assets
+        run: npm run build

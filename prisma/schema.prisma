@@ -1,0 +1,509 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  EMPLOYEE
+  IT_SUPPORT_AGENT
+  IT_MANAGER
+  ADMINISTRATOR
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum TicketType {
+  INCIDENT
+  SERVICE_REQUEST
+}
+
+enum TicketPriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum ImpactLevel {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum UrgencyLevel {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum TicketStatus {
+  NEW
+  TRIAGED
+  IN_PROGRESS
+  PENDING_USER
+  RESOLVED
+  CLOSED
+}
+
+enum SLAStatus {
+  WITHIN_SLA
+  APPROACHING_BREACH
+  BREACHED
+}
+
+enum AssetType {
+  LAPTOP
+  DESKTOP
+  MONITOR
+  PHONE
+  SERVER
+  PRINTER
+  NETWORK_DEVICE
+  PERIPHERAL
+}
+
+enum AssetLifecycleStatus {
+  IN_USE
+  IN_STORAGE
+  IN_REPAIR
+  RETIRED
+  DISPOSED
+}
+
+enum ArticleStatus {
+  DRAFT
+  IN_REVIEW
+  PUBLISHED
+  ARCHIVED
+}
+
+enum NotificationType {
+  TICKET_CREATED
+  TICKET_ASSIGNED
+  STATUS_CHANGED
+  COMMENT_ADDED
+  SLA_WARNING
+  SLA_BREACHED
+  SYSTEM
+}
+
+model User {
+  id               String       @id @default(cuid())
+  email            String       @unique
+  passwordHash     String
+  name             String
+  role             UserRole     @default(EMPLOYEE)
+  status           UserStatus   @default(ACTIVE)
+  avatarUrl        String?
+  jobTitle         String?
+  phone            String?
+  departmentId     String?
+  department       Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  employeeProfile  EmployeeProfile?
+  requestedTickets Ticket[]     @relation("RequestedTickets")
+  assignedTickets  Ticket[]     @relation("AssignedTickets")
+  comments         TicketComment[]
+  statusChanges    TicketStatusHistory[]
+  assignmentsMade  AssignmentHistory[] @relation("AssignedBy")
+  assignedAssets   Asset[]      @relation("AssignedUser")
+  assetAssignments AssetAssignmentHistory[] @relation("UserAssignedAssets")
+  assetsHandled    AssetAssignmentHistory[] @relation("AdminAssignedAssets")
+  articles         KnowledgeArticle[]
+  notifications    Notification[]
+  auditEvents      AuditEvent[]
+  escalationsMade  EscalationRecord[] @relation("EscalatedBy")
+  escalationsReceived EscalationRecord[] @relation("EscalatedTo")
+
+  @@index([role])
+  @@index([status])
+  @@index([email])
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  code        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  assets      Asset[]
+
+  @@index([name])
+}
+
+model EmployeeProfile {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employeeNumber   String    @unique
+  location         String    @default("Headquarters")
+  officeDesk       String?
+  managerName      String?
+  hireDate         DateTime?
+  emergencyContact String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([employeeNumber])
+}
+
+model Category {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  code        String       @unique
+  description String?
+  type        TicketType   @default(INCIDENT)
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+
+  subcategories Subcategory[]
+  tickets       Ticket[]
+
+  @@index([code])
+}
+
+model Subcategory {
+  id          String    @id @default(cuid())
+  categoryId  String
+  category    Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name        String
+  code        String
+  createdAt   DateTime  @default(now())
+
+  tickets     Ticket[]
+
+  @@unique([categoryId, code])
+}
+
+model Ticket {
+  id              String         @id @default(cuid())
+  ticketNumber    Int            @unique @default(autoincrement())
+  ticketCode      String         @unique
+  type            TicketType     @default(INCIDENT)
+  title           String
+  description     String
+  categoryId      String
+  category        Category       @relation(fields: [categoryId], references: [id])
+  subcategoryId   String?
+  subcategory     Subcategory?   @relation(fields: [subcategoryId], references: [id], onDelete: SetNull)
+  priority        TicketPriority @default(MEDIUM)
+  impact          ImpactLevel    @default(MEDIUM)
+  urgency         UrgencyLevel   @default(MEDIUM)
+  status          TicketStatus   @default(NEW)
+  requesterId     String
+  requester       User           @relation("RequestedTickets", fields: [requesterId], references: [id])
+  assignedAgentId String?
+  assignedAgent   User?          @relation("AssignedTickets", fields: [assignedAgentId], references: [id], onDelete: SetNull)
+  affectedAssetId String?
+  affectedAsset   Asset?         @relation(fields: [affectedAssetId], references: [id], onDelete: SetNull)
+
+  // SLA and Resolution fields
+  firstResponseDue DateTime?
+  firstResponseAt  DateTime?
+  resolutionDue    DateTime?
+  resolvedAt       DateTime?
+  closedAt         DateTime?
+  reopenedAt       DateTime?
+  reopenCount      Int           @default(0)
+  slaStatus        SLAStatus     @default(WITHIN_SLA)
+
+  resolutionNotes  String?
+  rootCause        String?
+
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  comments         TicketComment[]
+  statusHistory    TicketStatusHistory[]
+  assignmentHistory AssignmentHistory[]
+  escalations      EscalationRecord[]
+  slaTracking      SLATracking?
+  attachments      AttachmentMetadata[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([type])
+  @@index([requesterId])
+  @@index([assignedAgentId])
+  @@index([ticketCode])
+  @@index([createdAt])
+  @@index([resolutionDue])
+}
+
+model TicketComment {
+  id         String   @id @default(cuid())
+  ticketId   String
+  ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId   String
+  author     User     @relation(fields: [authorId], references: [id])
+  content    String
+  isInternal Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([ticketId])
+  @@index([authorId])
+}
+
+model TicketStatusHistory {
+  id             String       @id @default(cuid())
+  ticketId       String
+  ticket         Ticket       @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  previousStatus TicketStatus
+  newStatus      TicketStatus
+  changedById    String
+  changedBy      User         @relation(fields: [changedById], references: [id])
+  changeReason   String?
+  createdAt      DateTime     @default(now())
+
+  @@index([ticketId])
+}
+
+model AssignmentHistory {
+  id              String   @id @default(cuid())
+  ticketId        String
+  ticket          Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  previousAgentId String?
+  newAgentId      String?
+  assignedById    String
+  assignedBy      User     @relation("AssignedBy", fields: [assignedById], references: [id])
+  assignedAt      DateTime @default(now())
+
+  @@index([ticketId])
+}
+
+model SLAPolicy {
+  id                     String         @id @default(cuid())
+  name                   String         @unique
+  priority               TicketPriority @unique
+  responseTimeMinutes    Int
+  resolutionTimeMinutes  Int
+  escalationTimeMinutes  Int
+  isActive               Boolean        @default(true)
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+
+  @@index([priority])
+}
+
+model SLATracking {
+  id                   String    @id @default(cuid())
+  ticketId             String    @unique
+  ticket               Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  responseDeadline     DateTime
+  resolutionDeadline   DateTime
+  isResponseBreached   Boolean   @default(false)
+  isResolutionBreached Boolean   @default(false)
+  responseBreachedAt   DateTime?
+  resolutionBreachedAt DateTime?
+  lastCalculatedAt     DateTime  @default(now())
+
+  @@index([ticketId])
+}
+
+model EscalationRecord {
+  id             String    @id @default(cuid())
+  ticketId       String
+  ticket         Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  level          String    @default("LEVEL_1") // LEVEL_1, LEVEL_2, LEVEL_3
+  reason         String
+  escalatedById  String
+  escalatedBy    User      @relation("EscalatedBy", fields: [escalatedById], references: [id])
+  escalatedToId  String?
+  escalatedTo    User?     @relation("EscalatedTo", fields: [escalatedToId], references: [id])
+  status         String    @default("ACTIVE") // ACTIVE, RESOLVED
+  escalatedAt    DateTime  @default(now())
+  resolvedAt     DateTime?
+
+  @@index([ticketId])
+}
+
+model Asset {
+  id               String               @id @default(cuid())
+  assetTag         String               @unique
+  serialNumber     String               @unique
+  assetType        AssetType            @default(LAPTOP)
+  manufacturer     String
+  model            String
+  operatingSystem  String?
+  processor        String?
+  ramGb            Int?
+  storageGb        Int?
+  purchaseDate     DateTime
+  warrantyExpiry   DateTime
+  lifecycleStatus  AssetLifecycleStatus @default(IN_USE)
+  location         String               @default("Headquarters - Floor 3")
+  purchaseCost     Float?
+  notes            String?
+  assignedToUserId String?
+  assignedToUser   User?                @relation("AssignedUser", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+  departmentId     String?
+  department       Department?          @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  tickets          Ticket[]
+  assignmentHistory AssetAssignmentHistory[]
+  maintenanceLogs  AssetMaintenanceRecord[]
+
+  @@index([assetTag])
+  @@index([serialNumber])
+  @@index([assignedToUserId])
+  @@index([lifecycleStatus])
+}
+
+model AssetAssignmentHistory {
+  id               String    @id @default(cuid())
+  assetId          String
+  asset            Asset     @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  assignedToUserId String?
+  assignedToUser   User?     @relation("UserAssignedAssets", fields: [assignedToUserId], references: [id])
+  assignedByUserId String
+  assignedByUser   User      @relation("AdminAssignedAssets", fields: [assignedByUserId], references: [id])
+  assignedAt       DateTime  @default(now())
+  returnedAt       DateTime?
+  notes            String?
+
+  @@index([assetId])
+  @@index([assignedToUserId])
+}
+
+model AssetMaintenanceRecord {
+  id              String   @id @default(cuid())
+  assetId         String
+  asset           Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  maintenanceType String   // PREVENTIVE, REPAIR, UPGRADE, INSPECTION
+  description     String
+  cost            Float?   @default(0)
+  performedBy     String
+  performedAt     DateTime @default(now())
+  notes           String?
+
+  @@index([assetId])
+}
+
+model KnowledgeCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  articles    KnowledgeArticle[]
+
+  @@index([slug])
+}
+
+model KnowledgeArticle {
+  id                   String            @id @default(cuid())
+  slug                 String            @unique
+  title                String
+  summary              String
+  content              String
+  categoryId           String
+  category             KnowledgeCategory @relation(fields: [categoryId], references: [id])
+  status               ArticleStatus     @default(PUBLISHED)
+  authorId             String
+  author               User              @relation(fields: [authorId], references: [id])
+  viewCount            Int               @default(0)
+  helpfulCount         Int               @default(0)
+  notHelpfulCount      Int               @default(0)
+  tags                 String            @default("") // comma-separated tags
+  troubleshootingSteps String?           // Detailed step-by-step
+  prerequisites        String?           // Pre-conditions
+  expectedResults      String?           // Expected outcome
+  publishedAt          DateTime?         @default(now())
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  attachments          AttachmentMetadata[]
+
+  @@index([slug])
+  @@index([categoryId])
+  @@index([status])
+}
+
+model AttachmentMetadata {
+  id                 String            @id @default(cuid())
+  fileName           String
+  originalName       String
+  fileSizeBytes      Int
+  mimeType           String
+  storagePath        String
+  uploadedById       String
+  ticketId           String?
+  ticket             Ticket?           @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  knowledgeArticleId String?
+  knowledgeArticle   KnowledgeArticle? @relation(fields: [knowledgeArticleId], references: [id], onDelete: Cascade)
+  createdAt          DateTime          @default(now())
+
+  @@index([ticketId])
+  @@index([knowledgeArticleId])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      NotificationType @default(SYSTEM)
+  linkUrl   String?
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+model AuditEvent {
+  id           String   @id @default(cuid())
+  actorId      String?
+  actorEmail   String
+  actorRole    String
+  action       String   // e.g., TICKET_CREATED, STATUS_UPDATED, ROLE_CHANGED, ASSET_ASSIGNED
+  entityType   String   // e.g., Ticket, User, Asset, Settings
+  entityId     String
+  description  String
+  ipAddress    String?
+  userAgent    String?
+  metadataJson String?  // Stringified JSON without sensitive credentials
+  createdAt    DateTime @default(now())
+
+  actor        User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([entityType])
+  @@index([entityId])
+  @@index([createdAt])
+}
+
+model ApplicationSettings {
+  id                    String   @id @default("default-settings")
+  organizationName      String   @default("NexTech Enterprise Solutions")
+  supportEmail          String   @default("it-support@nexdesk.internal")
+  defaultTimezone       String   @default("UTC")
+  businessHoursStart    String   @default("08:00")
+  businessHoursEnd      String   @default("18:00")
+  businessDays          String   @default("Mon,Tue,Wed,Thu,Fri")
+  enableAutoAssignment  Boolean  @default(true)
+  slaWarningThreshold   Int      @default(30) // minutes before breach
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}

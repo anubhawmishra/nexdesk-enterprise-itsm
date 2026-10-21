@@ -1,0 +1,55 @@
+# Node dependencies
+node_modules/
+/.pnp
+.pnp.js
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pll.js
+
+# Environment and secrets
+.env
+.env*.local
+!.env.example
+*.pem
+*.key
+
+# Next.js build output
+.next/
+out/
+build/
+dist/
+
+# Prisma generated
+prisma/generated/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.log
+
+# Testing & Coverage
+coverage/
+playwright-report/
+test-results/
+.vitest/
+
+# OS and Editor
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+Thumbs.db
+.idea/
+.vscode/
+
+# Temp files
+tmp/
+temp/
+*.tsbuildinfo
+.gemini/
